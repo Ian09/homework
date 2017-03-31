@@ -52,7 +52,7 @@ def learn(env,
     session: tf.Session
         tensorflow session to use.
     exploration: rl_algs.deepq.utils.schedules.Schedule
-        schedule for probability of chosing random action.
+        schedule for probability of choosing random action.
     stopping_criterion: (env, t) -> bool
         should return true when it's ok for the RL algorithm to stop.
         takes in env and the number of steps executed so far.
@@ -126,6 +126,26 @@ def learn(env,
     # q_func_vars = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope='q_func')
     # Older versions of TensorFlow may require using "VARIABLES" instead of "GLOBAL_VARIABLES"
     ######
+
+    target_q_out_tp1 = q_func(obs_tp1_float, num_actions, scope="target_q_func", reuse = False)
+    y = rew_t_ph + (1-done_mask_ph)*gamma*tf.reduce_max(target_q_out_tp1, axis=1)
+    q_out_t = q_func(obs_t_float, num_actions, scope="q_func", reuse=False)
+    total_error = tf.reduce_mean(tf.squared_difference(y , tf.gather_nd(q_out_t, tf.stack([tf.range(batch_size), act_t_ph], axis=1))))
+
+
+    # flag_explore_t = tf.multinomial(tf.log([[1-exploration, exploration]]), batch_size)
+    # action_explored_t =  tf.multinomial(tf.log([[10.]*num_actions]), batch_size)
+    # action_exploited_t = tf.argmax(q_network_out_t, axis=1)
+    # action_t = flag_explore_t*action_explored_t + (1-flag_explore_t)*action_exploited_t
+    # env.step(action_t)
+
+
+    # target_q_network_out = q_func(obs_t_float, num_actions, scope="target_q_func", reuse=False)
+    q_func_vars = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope='q_func')
+    target_q_func_vars = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope='target_q_func')
+
+
+
     
     # YOUR CODE HERE
 
@@ -156,11 +176,33 @@ def learn(env,
     best_mean_episode_reward = -float('inf')
     last_obs = env.reset()
     LOG_EVERY_N_STEPS = 10000
+    session.run(tf.global_variables_initializer())
 
     for t in itertools.count():
         ### 1. Check stopping criterion
         if stopping_criterion is not None and stopping_criterion(env, t):
             break
+        idx = replay_buffer.store_frame(last_obs)
+        # import pdb
+
+        encoded_obs = replay_buffer.encode_recent_observation()
+        if (np.random.rand()<exploration.value(t)):
+            action_t = np.random.randint(num_actions)
+        else:
+            # pdb.set_trace()
+            action_t = np.argmax(q_out_t.eval(session=session,
+                                  feed_dict={obs_t_ph: encoded_obs[None, :, :, :]}
+                                  ),
+                                 axis=1
+                                 )[0]
+
+        last_obs, reward, done, info = env.step(action_t)
+        replay_buffer.store_effect(idx, action_t, reward, done)
+
+        if done:
+            last_obs = env.reset()
+        else:
+            replay_buffer.store_frame(last_obs)
 
         ### 2. Step the env and store the transition
         # At this point, "last_obs" contains the latest observation that was
@@ -196,6 +238,7 @@ def learn(env,
         
         # YOUR CODE HERE
 
+
         #####
 
         # at this point, the environment should have been advanced one step (and
@@ -209,6 +252,33 @@ def learn(env,
         if (t > learning_starts and
                 t % learning_freq == 0 and
                 replay_buffer.can_sample(batch_size)):
+
+            obs_batch, act_batch, rew_batch, next_obs_batch, done_mask_batch = replay_buffer.sample(batch_size)
+            if not model_initialized:
+                initialize_interdependent_variables(session,
+                                                    tf.global_variables(),
+                                                    {
+                                                        obs_t_ph:obs_batch,
+                                                        obs_tp1_ph:next_obs_batch
+                                                    }
+                                                    )
+                model_initialized = True
+            _, total_error_batch = session.run([train_fn, total_error],
+                                               feed_dict={obs_t_ph: obs_batch,
+                                                          act_t_ph: act_batch,
+                                                          rew_t_ph: rew_batch,
+                                                          obs_tp1_ph: next_obs_batch,
+                                                          done_mask_ph: done_mask_batch,
+                                                          learning_rate: optimizer_spec.lr_schedule.value(t)
+                                                          }
+                                               )
+            num_param_updates += 1
+            if num_param_updates % target_update_freq == 0:
+                print "update target network"
+                session.run(update_target_fn)
+
+
+
             # Here, you should perform training. Training consists of four steps:
             # 3.a: use the replay buffer to sample a batch of transitions (see the
             # replay buffer code for function definition, each batch that you sample

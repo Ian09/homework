@@ -154,10 +154,10 @@ def initialize_interdependent_variables(session, vars_list, feed_dict):
             except tf.errors.FailedPreconditionError:
                 new_vars_left.append(v)
         if len(new_vars_left) >= len(vars_left):
-            # This can happend if the variables all depend on each other, or more likely if there's
+            # This can happen if the variables all depend on each other, or more likely if there's
             # another variable outside of the list, that still needs to be initialized. This could be
             # detected here, but life's finite.
-            raise Exception("Cycle in variable dependencies, or extenrnal precondition unsatisfied.")
+            raise Exception("Cycle in variable dependencies, or external precondition unsatisfied.")
         else:
             vars_left = new_vars_left
 
@@ -183,7 +183,7 @@ class ReplayBuffer(object):
               time)
             - store frame_t and frame_(t+1) in the same buffer.
 
-        For the tipical use case in Atari Deep RL buffer with 1M frames the total
+        For the typical use case in Atari Deep RL buffer with 1M frames the total
         memory footprint of this buffer is 10^6 * 84 * 84 bytes ~= 7 gigabytes
 
         Warning! Assumes that returning frame of zeros at the beginning
@@ -328,12 +328,12 @@ class ReplayBuffer(object):
         return ret
 
     def store_effect(self, idx, action, reward, done):
-        """Store effects of action taken after obeserving frame stored
+        """Store effects of action taken after observing frame stored
         at index idx. The reason `store_frame` and `store_effect` is broken
         up into two functions is so that once can call `encode_recent_observation`
         in between.
 
-        Paramters
+        Parameters
         ---------
         idx: int
             Index in buffer of recently observed frame (returned by `store_frame`).
